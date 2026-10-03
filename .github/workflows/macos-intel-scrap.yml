@@ -25,17 +25,14 @@ jobs:
       run: |
         brew install python3 nasm cmake wget
 
-    - name: Setup vcpkg
+    - name: Setup vcpkg (classic mode)
       run: |
         mkdir -p "$GITHUB_WORKSPACE/vcpkg"
         cd "$GITHUB_WORKSPACE/vcpkg"
         git clone https://github.com/microsoft/vcpkg.git .
         git checkout $VCPKG_COMMIT_ID
         ./bootstrap-vcpkg.sh -disableMetrics
-
-    - name: Install vcpkg dependencies
-      run: |
-        $GITHUB_WORKSPACE/vcpkg/vcpkg install libyuv --triplet x64-osx-release
+        ./vcpkg install libyuv libvpx aom --triplet x64-osx-release --classic
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
