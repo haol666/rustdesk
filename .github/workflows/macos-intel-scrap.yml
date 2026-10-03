@@ -32,7 +32,7 @@ jobs:
         git clone https://github.com/microsoft/vcpkg.git .
         git checkout $VCPKG_COMMIT_ID
         ./bootstrap-vcpkg.sh -disableMetrics
-        ./vcpkg install libyuv libvpx aom --triplet x64-osx-release --classic
+        ./vcpkg install libyuv libvpx aom --triplet x64-osx --classic
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
