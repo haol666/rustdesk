@@ -151,6 +151,15 @@ pub struct CGRect {
     pub size: CGSize,
 }
 
+impl CGRect {
+    pub fn zero() -> CGRect {
+        CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize { width: 0.0, height: 0.0 },
+        }
+    }
+}
+
 #[link(name = "System", kind = "dylib")]
 #[link(name = "CoreGraphics", kind = "framework")]
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -239,3 +248,98 @@ extern "C" {
     pub fn CFRetain(cf: *const c_void);
     pub fn CFRelease(cf: *const c_void);
 }
+
+// ─── CGWindowList (CGWindowListCreateImage) ───
+
+pub const kCGNullWindowID: u32 = 0;
+
+pub const kCGWindowListOptionOnScreenOnly: u32 = 1 << 0;
+pub const kCGWindowListOptionAll: u32 = 0;
+pub const kCGWindowListOptionIncludingWindow: u32 = 1 << 1;
+
+pub const kCGWindowImageDefault: u32 = 0;
+pub const kCGWindowImageBoundsIgnoreFraming: u32 = 1 << 0;
+pub const kCGWindowImageShouldBeOpaque: u32 = 1 << 1;
+pub const kCGWindowImageOnlyShadows: u32 = 1 << 2;
+pub const kCGWindowImageBestResolution: u32 = 1 << 3;
+pub const kCGWindowImageNominalResolution: u32 = 1 << 4;
+
+// CGBitmapInfo / CGImageAlphaInfo (subset used by CGBitmapContext)
+pub const kCGImageAlphaNone: u32 = 0;
+pub const kCGImageAlphaPremultiplied: u32 = 1;
+pub const kCGImageAlphaPremultipliedFirst: u32 = 1 << 0;
+pub const kCGImageAlphaPremultipliedLast: u32 = 1 << 1;
+pub const kCGImageAlphaNonpremultiplied: u32 = 2;
+pub const kCGImageAlphaNonpremultipliedFirst: u32 = 2 << 0;
+pub const kCGImageAlphaNonpremultipliedLast: u32 = 3 << 0;
+pub const kCGImageAlphaNoneSkipFirst: u32 = 3 << 0;
+pub const kCGImageAlphaNoneSkipLast: u32 = 4 << 0;
+pub const kCGImageByteOrderDefault: u32 = 0;
+pub const kCGBitmapByteOrder32Little: u32 = 1 << 12;
+pub const kCGBitmapByteOrder16Little: u32 = 1 << 13;
+pub const kCGBitmapByteOrder32Big: u32 = 1 << 14;
+
+// CGColorSpace name constants (created at runtime via CFStringCreateWithCString)
+pub type CGImageRef = *mut c_void;
+pub type CGDataProviderRef = *mut c_void;
+pub type CGColorSpaceRef = *mut c_void;
+pub type CFDataRef = *mut c_void;
+pub type CFStringRef = *const c_void;
+pub type CFAllocatorRef = *mut c_void;
+pub type CGContextRef = *mut c_void;
+
+pub static kCFAllocatorDefault: CFAllocatorRef = std::ptr::null_mut();
+pub const kCFStringEncodingUTF8: u32 = 0x08000100;
+
+// CGImage
+pub fn CGImageGetWidth(image: CGImageRef) -> usize;
+pub fn CGImageGetHeight(image: CGImageRef) -> usize;
+pub fn CGImageGetBitsPerPixel(image: CGImageRef) -> usize;
+pub fn CGImageGetBytesPerRow(image: CGImageRef) -> usize;
+pub fn CGImageGetDataProvider(image: CGImageRef) -> CGDataProviderRef;
+pub fn CGImageGetAlphaInfo(image: CGImageRef) -> u32;
+
+// CGDataProvider
+pub fn CGDataProviderCopyData(provider: CGDataProviderRef) -> CFDataRef;
+pub fn CGDataProviderRelease(provider: CGDataProviderRef);
+
+// CFData
+pub fn CFDataGetBytePtr(data: CFDataRef) -> *mut u8;
+pub fn CFDataGetLength(data: CFDataRef) -> isize;
+pub fn CFDataRelease(data: CFDataRef);
+
+// CGBitmapContext
+pub fn CGBitmapContextCreate(
+    data: *mut c_void,
+    width: usize,
+    height: usize,
+    bitsPerComponent: usize,
+    bytesPerRow: usize,
+    colorSpace: CGColorSpaceRef,
+    bitmapInfo: u32,
+) -> CGContextRef;
+
+pub fn CGBitmapContextCreateImage(context: CGContextRef) -> CGImageRef;
+
+pub fn CGContextDrawImage(
+    context: CGContextRef,
+    rect: CGRect,
+    image: CGImageRef,
+);
+
+pub fn CGBitmapContextGetData(context: CGContextRef) -> *mut c_void;
+
+pub fn CGContextRelease(context: CGContextRef);
+
+// CGColorSpace
+pub fn CGColorSpaceCreateWithName(name: CFStringRef) -> CGColorSpaceRef;
+pub fn CGColorSpaceRelease(space: CGColorSpaceRef);
+
+// CFString
+pub fn CFStringCreateWithCString(
+    allocator: CFAllocatorRef,
+    cStr: *const i8,
+    encoding: u32,
+) -> CFStringRef;
+
+pub fn CFRelease(cf: *const c_void);

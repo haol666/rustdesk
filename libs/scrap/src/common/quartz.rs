@@ -1,17 +1,36 @@
 use crate::{quartz, Frame, Pixfmt};
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
-use std::{io, mem};
+use std::{io, mem, time};
+
+/// Probing duration: if CGDisplayStream produces zero frames within this
+/// window after start, we switch to the CGWindowList fallback capturer.
+const PROBE_DURATION: time::Duration = time::Duration::from_secs(3);
 
 pub struct Capturer {
     inner: quartz::Capturer,
     frame: Arc<Mutex<Option<quartz::Frame>>>,
-    saved_raw_data: Vec<u8>, // for faster compare and copy
+    saved_raw_data: Vec<u8>,
+    /// True after fallback switch (CGDisplayStream → CGWindowList)
+    degraded: Arc<AtomicBool>,
+    /// Frame counter for the main (CGDisplayStream) capturer
+    frame_count: Arc<AtomicU64>,
+    /// Timestamp when the capturer was created (for probe window)
+    start_time: time::Instant,
+    /// Fallback frame channel (used when degraded == true)
+    fallback_frame: Arc<Mutex<Option<quartz::Frame>>>,
+    /// The CGWindowList fallback capturer (None until degradation triggers)
+    fallback: Option<quartz::CGWindowListCapturer>,
 }
 
 impl Capturer {
     pub fn new(display: Display) -> io::Result<Capturer> {
         let frame = Arc::new(Mutex::new(None));
+        let fallback_frame = Arc::new(Mutex::new(None));
+        let degraded = Arc::new(AtomicBool::new(false));
+        let frame_count = Arc::new(AtomicU64::new(0));
+        let start_time = time::Instant::now();
 
         let f = frame.clone();
         let inner = quartz::Capturer::new(
@@ -28,10 +47,31 @@ impl Capturer {
         )
         .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
 
+        // Launch a background probe thread: if CGDisplayStream produces
+        // zero frames within PROBE_DURATION, switch to CGWindowList fallback.
+        let f_deg = degraded.clone();
+        let f_fc = frame_count.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(PROBE_DURATION);
+            let count = f_fc.load(Ordering::Relaxed);
+            if count == 0 {
+                log::warn!(
+                    "CGDisplayStream produced 0 frames in {}s, switching to CGWindowList fallback",
+                    PROBE_DURATION.as_secs()
+                );
+                f_deg.store(true, Ordering::Relaxed);
+            }
+        });
+
         Ok(Capturer {
             inner,
             frame,
             saved_raw_data: Vec::new(),
+            degraded,
+            frame_count,
+            start_time,
+            fallback_frame,
+            fallback: None,
         })
     }
 
@@ -46,15 +86,48 @@ impl Capturer {
 
 impl crate::TraitCapturer for Capturer {
     fn frame<'a>(&'a mut self, _timeout_ms: std::time::Duration) -> io::Result<Frame<'a>> {
+        // Lazy-init fallback capturer on first use after degradation
+        if self.degraded.load(Ordering::Relaxed) {
+            if self.fallback.is_none() {
+                self.fallback = Some(quartz::CGWindowListCapturer::new(
+                    self.width(),
+                    self.height(),
+                    self.fallback_frame.clone(),
+                ));
+            }
+            // Read from the fallback frame channel
+            match self.fallback_frame.try_lock() {
+                Ok(mut handle) => {
+                    let mut frame = None;
+                    mem::swap(&mut frame, &mut handle);
+                    match frame {
+                        Some(mut frame) => {
+                            frame.surface_to_bgra(self.height());
+                            crate::would_block_if_equal(&mut self.saved_raw_data, &frame.bgra)?;
+                            return Ok(Frame::PixelBuffer(PixelBuffer {
+                                frame,
+                                data: PhantomData,
+                                width: self.width(),
+                                height: self.height(),
+                            }));
+                        }
+                        None => Err(io::ErrorKind::WouldBlock.into()),
+                    }
+                }
+                Err(TryLockError::WouldBlock) => Err(io::ErrorKind::WouldBlock.into()),
+                Err(TryLockError::Poisoned(..)) => Err(io::ErrorKind::Other.into()),
+            }
+        }
+
+        // Normal path: read from the main frame channel
         match self.frame.try_lock() {
             Ok(mut handle) => {
                 let mut frame = None;
                 mem::swap(&mut frame, &mut handle);
-
                 match frame {
                     Some(mut frame) => {
-                        crate::would_block_if_equal(&mut self.saved_raw_data, frame.inner())?;
                         frame.surface_to_bgra(self.height());
+                        crate::would_block_if_equal(&mut self.saved_raw_data, &frame.bgra)?;
                         Ok(Frame::PixelBuffer(PixelBuffer {
                             frame,
                             data: PhantomData,
@@ -62,13 +135,10 @@ impl crate::TraitCapturer for Capturer {
                             height: self.height(),
                         }))
                     }
-
                     None => Err(io::ErrorKind::WouldBlock.into()),
                 }
             }
-
             Err(TryLockError::WouldBlock) => Err(io::ErrorKind::WouldBlock.into()),
-
             Err(TryLockError::Poisoned(..)) => Err(io::ErrorKind::Other.into()),
         }
     }
