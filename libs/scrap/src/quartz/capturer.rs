@@ -295,6 +295,7 @@ impl CGWindowListCapturer {
             result
         }
     }
+}
 
 impl Drop for CGWindowListCapturer {
     fn drop(&mut self) {
