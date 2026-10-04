@@ -29,6 +29,20 @@ jobs:
           echo "---"
           file ./dist/*.dmg || true
 
+      # 重命名 DMG（带 run-id），避免 ghfast CDN 缓存命中旧版本
+      - name: Rename DMG with run id
+        run: |
+          cd dist
+          RUN_ID="${{ github.event.inputs.run_id || '37212928951' }}"
+          shopt -s nullglob
+          dmgs=( *.dmg )
+          echo "found ${#dmgs[@]} dmg file(s)"
+          for f in "${dmgs[@]}"; do
+            mv -v "$f" "rustdesk-t5-r${RUN_ID}.dmg"
+            break
+          done
+          ls -la
+
       # 创建 prerelease 并上传 DMG（公开可下载）
       - name: Create release and upload DMG
         uses: softprops/action-gh-release@v1
