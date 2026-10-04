@@ -20,41 +20,50 @@ jobs:
     - name: Checkout source code
       uses: actions/checkout@v4
       with:
+        fetch-depth: 1
         submodules: false
 
-    - name: Initialize hbb_common submodule
+    - name: Quick test - verify environment
+      run: |
+        echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+        echo "HOME: $HOME"
+        echo "which git: $(which git)"
+        echo "which cargo: $(which cargo)"
+        echo "which cmake: $(which cmake)"
+        echo "git version: $(git --version)"
+        echo "cargo version: $(cargo --version)"
+        echo "cmake version: $(cmake --version | head -1)"
+        echo "df -h:"
+        df -h
+        echo "free -h:"
+        free -h
+
+    - name: Initialize hbb_common
       run: |
         cd "$GITHUB_WORKSPACE"
-        echo "Checking if hbb_common submodule is already initialized..."
         if [ -f "libs/hbb_common/Cargo.toml" ]; then
-          echo "hbb_common already initialized."
+          echo "hbb_common already exists."
         else
-          echo "Initializing hbb_common submodule..."
+          echo "Cloning hbb_common..."
           rm -rf libs/hbb_common
-          git clone https://github.com/rustdesk/hbb_common.git libs/hbb_common
+          git clone --depth 1 https://github.com/rustdesk/hbb_common.git libs/hbb_common
           cd libs/hbb_common
+          git fetch --depth 1 origin $HBB_COMMON_COMMIT
           git checkout $HBB_COMMON_COMMIT
           cd "$GITHUB_WORKSPACE"
         fi
-        echo "hbb_common initialization complete."
-        ls -la libs/hbb_common/Cargo.toml
+        echo "hbb_common ready."
+        ls libs/hbb_common/Cargo.toml
 
-    - name: Setup vcpkg (classic mode with overlays)
+    - name: Setup vcpkg
       run: |
-        set -x
-        echo "=== Starting vcpkg setup ==="
         mkdir -p "$GITHUB_WORKSPACE/vcpkg"
         cd "$GITHUB_WORKSPACE/vcpkg"
-        echo "=== Cloning vcpkg ==="
-        git clone https://github.com/microsoft/vcpkg.git . 2>&1
-        echo "=== Checking out vcpkg commit ==="
-        git checkout $VCPKG_COMMIT_ID 2>&1
-        echo "=== Bootstrapping vcpkg ==="
-        ./bootstrap-vcpkg.sh -disableMetrics 2>&1
+        git clone --depth 1 https://github.com/microsoft/vcpkg.git .
+        git checkout $VCPKG_COMMIT_ID
+        ./bootstrap-vcpkg.sh -disableMetrics
         cd "$GITHUB_WORKSPACE"
-        echo "=== Installing packages with vcpkg ==="
-        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg 2>&1
-        echo "=== vcpkg install completed successfully ==="
+        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
@@ -64,9 +73,6 @@ jobs:
 
     - name: Build scrap library
       run: |
-        set -x
         export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
         export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
-        echo "=== Starting cargo build ==="
-        cargo build -p scrap --target x86_64-apple-darwin 2>&1
-        echo "=== Build completed ==="
+        cargo build -p scrap --target x86_64-apple-darwin
