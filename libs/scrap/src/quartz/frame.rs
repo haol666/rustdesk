@@ -60,7 +60,7 @@ impl Frame {
     pub fn surface_to_bgra<'a>(&'a mut self, h: usize) {
         if let Some(surface) = self.surface {
             unsafe {
-                let plane0 = IOSurfaceGetBaseAddressOfPlane(surface, 0);
+                let plane0 = IOSurfaceGetBaseAddressOfPlane(surface, 0) as *const u8;
                 self.bgra_stride = IOSurfaceGetBytesPerRowOfPlane(surface, 0);
                 self.bgra.resize(self.bgra_stride * h, 0);
                 std::ptr::copy_nonoverlapping(
