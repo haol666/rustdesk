@@ -10,6 +10,7 @@ on:
 
 env:
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+  HBB_COMMON_COMMIT: "229b904508364c8997aad0fb5af57effac859f60"
 
 jobs:
   build:
@@ -19,17 +20,41 @@ jobs:
     - name: Checkout source code
       uses: actions/checkout@v4
       with:
-        submodules: recursive
+        submodules: false
+
+    - name: Initialize hbb_common submodule
+      run: |
+        cd "$GITHUB_WORKSPACE"
+        echo "Checking if hbb_common submodule is already initialized..."
+        if [ -f "libs/hbb_common/Cargo.toml" ]; then
+          echo "hbb_common already initialized."
+        else
+          echo "Initializing hbb_common submodule..."
+          rm -rf libs/hbb_common
+          git clone https://github.com/rustdesk/hbb_common.git libs/hbb_common
+          cd libs/hbb_common
+          git checkout $HBB_COMMON_COMMIT
+          cd "$GITHUB_WORKSPACE"
+        fi
+        echo "hbb_common initialization complete."
+        ls -la libs/hbb_common/Cargo.toml
 
     - name: Setup vcpkg (classic mode with overlays)
       run: |
+        set -x
+        echo "=== Starting vcpkg setup ==="
         mkdir -p "$GITHUB_WORKSPACE/vcpkg"
         cd "$GITHUB_WORKSPACE/vcpkg"
-        git clone https://github.com/microsoft/vcpkg.git .
-        git checkout $VCPKG_COMMIT_ID
-        ./bootstrap-vcpkg.sh -disableMetrics
+        echo "=== Cloning vcpkg ==="
+        git clone https://github.com/microsoft/vcpkg.git . 2>&1
+        echo "=== Checking out vcpkg commit ==="
+        git checkout $VCPKG_COMMIT_ID 2>&1
+        echo "=== Bootstrapping vcpkg ==="
+        ./bootstrap-vcpkg.sh -disableMetrics 2>&1
         cd "$GITHUB_WORKSPACE"
-        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg
+        echo "=== Installing packages with vcpkg ==="
+        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg 2>&1
+        echo "=== vcpkg install completed successfully ==="
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
@@ -39,6 +64,9 @@ jobs:
 
     - name: Build scrap library
       run: |
+        set -x
         export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
         export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
-        cargo build -p scrap --target x86_64-apple-darwin
+        echo "=== Starting cargo build ==="
+        cargo build -p scrap --target x86_64-apple-darwin 2>&1
+        echo "=== Build completed ==="
