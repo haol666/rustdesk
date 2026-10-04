@@ -23,44 +23,109 @@ jobs:
         fetch-depth: 1
         submodules: false
 
-    - name: Quick test - verify environment
+    - name: Diagnostic - git clone tests
+      shell: bash
       run: |
-        echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-        echo "HOME: $HOME"
-        echo "which git: $(which git)"
-        echo "which cmake: $(which cmake || echo 'not found')"
-        echo "git version: $(git --version)"
-        echo "cmake version: $(cmake --version 2>/dev/null | head -1 || echo 'not found')"
-        echo "df -h:"
-        df -h
-        echo "vm_stat:"
-        vm_stat
+        set +e
+        LOG=/tmp/diag.log
+        echo "=== DIAG START $(date) ===" > $LOG
+        echo "uname: $(uname -a)" >> $LOG
+        echo "disk:" >> $LOG
+        df -h / >> $LOG 2>&1
+        echo "=== git --version ===" >> $LOG
+        git --version >> $LOG 2>&1
+        echo "git clone hbb_common test (shallow) ===" >> $LOG
+        rm -rf /tmp/hbb_test
+        timeout 60 git clone --depth 1 https://github.com/rustdesk/hbb_common.git /tmp/hbb_test >> $LOG 2>&1
+        echo "hbb clone exit: $?" >> $LOG
+        echo "=== git clone vcpkg test ===" >> $LOG
+        rm -rf /tmp/vcpkg_test
+        timeout 120 git clone --depth 1 https://github.com/microsoft/vcpkg.git /tmp/vcpkg_test >> $LOG 2>&1
+        echo "vcpkg clone exit: $?" >> $LOG
+        echo "=== test checkout vcpkg commit ===" >> $LOG
+        cd /tmp/vcpkg_test 2>/dev/null && git fetch --depth 1 origin $VCPKG_COMMIT_ID >> $LOG 2>&1
+        echo "fetch exit: $?" >> $LOG
+        cd /tmp/vcpkg_test 2>/dev/null && git checkout $VCPKG_COMMIT_ID >> $LOG 2>&1
+        echo "checkout exit: $?" >> $LOG
+        echo "=== test checkout hbb commit ===" >> $LOG
+        cd /tmp/hbb_test 2>/dev/null && git fetch --depth 1 origin $HBB_COMMON_COMMIT >> $LOG 2>&1
+        echo "fetch exit: $?" >> $LOG
+        cd /tmp/hbb_test 2>/dev/null && git checkout $HBB_COMMON_COMMIT >> $LOG 2>&1
+        echo "checkout exit: $?" >> $LOG
+        echo "=== DONE ===" >> $LOG
+        cat $LOG
+
+    - name: Upload diagnostic log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: diag-log
+        path: /tmp/diag.log
 
     - name: Initialize hbb_common
+      shell: bash
       run: |
+        set +e
+        LOG=/tmp/setup_hbb.log
+        echo "=== init hbb_common $(date) ===" > $LOG
         cd "$GITHUB_WORKSPACE"
         if [ -f "libs/hbb_common/Cargo.toml" ]; then
-          echo "hbb_common already exists."
+          echo "hbb_common already exists." >> $LOG
         else
-          echo "Cloning hbb_common..."
+          echo "rm -rf libs/hbb_common" >> $LOG
           rm -rf libs/hbb_common
-          git clone https://github.com/rustdesk/hbb_common.git libs/hbb_common
+          echo "git clone hbb_common..." >> $LOG
+          git clone https://github.com/rustdesk/hbb_common.git libs/hbb_common >> $LOG 2>&1
+          echo "clone exit: $?" >> $LOG
           cd libs/hbb_common
-          git checkout $HBB_COMMON_COMMIT
+          git checkout $HBB_COMMON_COMMIT >> $LOG 2>&1
+          echo "checkout exit: $?" >> $LOG
           cd "$GITHUB_WORKSPACE"
         fi
-        echo "hbb_common ready."
-        ls libs/hbb_common/Cargo.toml
+        echo "ls Cargo.toml:" >> $LOG
+        ls -la libs/hbb_common/Cargo.toml >> $LOG 2>&1
+        echo "=== END init hbb ===" >> $LOG
+        cat $LOG
+        exit 0
+
+    - name: Upload hbb init log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: hbb-init-log
+        path: /tmp/setup_hbb.log
 
     - name: Setup vcpkg
+      shell: bash
       run: |
+        set +e
+        LOG=/tmp/vcpkg.log
+        echo "=== setup vcpkg $(date) ===" > $LOG
         mkdir -p "$GITHUB_WORKSPACE/vcpkg"
         cd "$GITHUB_WORKSPACE/vcpkg"
-        git clone https://github.com/microsoft/vcpkg.git .
-        git checkout $VCPKG_COMMIT_ID
-        ./bootstrap-vcpkg.sh -disableMetrics
+        echo "git clone vcpkg..." >> $LOG
+        git clone https://github.com/microsoft/vcpkg.git . >> $LOG 2>&1
+        echo "clone exit: $?" >> $LOG
+        echo "git checkout $VCPKG_COMMIT_ID" >> $LOG
+        git checkout $VCPKG_COMMIT_ID >> $LOG 2>&1
+        echo "checkout exit: $?" >> $LOG
+        echo "bootstrap vcpkg..." >> $LOG
+        ./bootstrap-vcpkg.sh -disableMetrics >> $LOG 2>&1
+        echo "bootstrap exit: $?" >> $LOG
         cd "$GITHUB_WORKSPACE"
-        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg
+        echo "vcpkg install..." >> $LOG
+        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg >> $LOG 2>&1
+        echo "install exit: $?" >> $LOG
+        echo "=== DONE vcpkg ===" >> $LOG
+        cat $LOG
+        exit 0
+
+    - name: Upload vcpkg log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: vcpkg-log
+        path: /tmp/vcpkg.log
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
@@ -69,7 +134,24 @@ jobs:
         targets: x86_64-apple-darwin
 
     - name: Build scrap library
+      shell: bash
       run: |
+        set +e
+        LOG=/tmp/build.log
+        echo "=== build scrap $(date) ===" > $LOG
         export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
         export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
-        cargo build -p scrap --target x86_64-apple-darwin
+        echo "VCPKG_ROOT=$VCPKG_ROOT" >> $LOG
+        ls "$VCPKG_ROOT/installed" >> $LOG 2>&1
+        cargo build -p scrap --target x86_64-apple-darwin >> $LOG 2>&1
+        echo "cargo exit: $?" >> $LOG
+        echo "=== DONE build ===" >> $LOG
+        cat $LOG
+        exit 0
+
+    - name: Upload build log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: /tmp/build.log
