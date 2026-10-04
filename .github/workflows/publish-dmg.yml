@@ -1,0 +1,38 @@
+name: Publish DMG to Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # 从指定的历史 run 下载 artifact（GitHub 内网，速度快）
+      - name: Download DMG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rustdesk-unsigned-macos-x86_64
+          path: ./dist
+          run-id: "37192333137"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show downloaded files
+        run: |
+          ls -la ./dist/
+          echo "---"
+          file ./dist/*.dmg || true
+
+      # 创建 prerelease 并上传 DMG（公开可下载）
+      - name: Create release and upload DMG
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: t5-test-dmg
+          name: "T5 test build (CGWindowList fallback)"
+          prerelease: true
+          files: dist/*.dmg
+          body: |
+            Test build for T5 verification.
+            Contains CGDisplayStream → CGWindowList fallback.
+            Not for production use.
