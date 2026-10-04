@@ -2,6 +2,11 @@ name: Publish DMG to Release
 
 on:
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Actions run ID containing the DMG artifact'
+        required: false
+        default: '37212928951'
 
 jobs:
   publish:
@@ -15,7 +20,7 @@ jobs:
         with:
           name: rustdesk-unsigned-macos-x86_64
           path: ./dist
-          run-id: "37192333137"
+          run-id: ${{ github.event.inputs.run_id || '37212928951' }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Show downloaded files
