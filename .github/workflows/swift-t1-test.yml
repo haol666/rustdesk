@@ -1,0 +1,128 @@
+name: Swift T1 Compile Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    name: Swift compile test
+    runs-on: macos-14
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Check swiftc version
+      run: |
+        swiftc --version
+        echo "---"
+        swift --version
+
+    - name: Create test program
+      run: |
+        cat > /tmp/cgds-frames-count.swift << 'SWIFT_EOF'
+        import CoreGraphics
+        import CoreVideo
+        import Foundation
+
+        final class FrameStats {
+            private let lock = NSLock()
+            private var frameCount = 0
+            private var statusCount: [CGDisplayStreamFrameStatus: Int] = [:]
+            func record(_ status: CGDisplayStreamFrameStatus) {
+                lock.lock(); defer { lock.unlock() }
+                statusCount[status, default: 0] += 1
+                if status == .frameComplete { frameCount += 1 }
+            }
+            var current: Int { lock.lock(); defer { lock.unlock() }; return frameCount }
+            var summary: String {
+                lock.lock(); defer { lock.unlock() }
+                let parts = statusCount.sorted { $0.key.rawValue < $1.key.rawValue }
+                    .map { "\($0.key)=\($0.value)" }
+                return "frames=\(frameCount) [" + parts.joined(separator: ", ") + "]"
+            }
+        }
+
+        func testCGDisplayStream(label: String, w: Int, h: Int, seconds: Int) {
+            let display = CGMainDisplayID()
+            let stats = FrameStats()
+            let queue = DispatchQueue(label: "cgds.frames." + UUID().uuidString)
+
+            let handler: CGDisplayStreamFrameAvailableHandler = { status, _, _, _ in
+                stats.record(status)
+            }
+
+            guard let stream = CGDisplayStream(
+                dispatchQueueDisplay: display,
+                outputWidth: w,
+                outputHeight: h,
+                pixelFormat: Int32(kCVPixelFormatType_32BGRA),
+                properties: nil,
+                queue: queue,
+                handler: handler
+            ) else {
+                print("[\(label)] CGDisplayStream returned nil (silent failure)")
+                return
+            }
+
+            let err = stream.start()
+            guard err == .success else {
+                print("[\(label)] start() failed: \(err)")
+                return
+            }
+            print("[\(label)] started, counting frames for \(seconds)s ...")
+            for s in 1...seconds {
+                Thread.sleep(forTimeInterval: 1.0)
+                print("  t+\(s)s: \(stats.current) frames")
+            }
+            stream.stop()
+            print("[\(label)] final: \(stats.summary)")
+            print()
+        }
+
+        func testCGWindowList(seconds: Int) {
+            var ok = 0, fail = 0
+            let t0 = Date()
+            var lastSize = ""
+            while Date().timeIntervalSince(t0) < Double(seconds) {
+                if let img = CGWindowListCreateImage(.null, [.optionOnScreenOnly],
+                                                     kCGNullWindowID, [.bestResolution]) {
+                    ok += 1
+                    lastSize = "\(Int(img.width))x\(Int(img.height))"
+                } else { fail += 1 }
+                Thread.sleep(forTimeInterval: 0.033)
+            }
+            print("[CGWindowList] \(seconds)s: ok=\(ok) fail=\(fail) size=\(lastSize) ~\(ok/seconds)fps")
+        }
+
+        print("=== T1: CGDisplayStream Frame Test ===")
+        print()
+        print("--- A. Auto size (0,0) ---")
+        testCGDisplayStream(label: "Auto", w: 0, h: 0, seconds: 10)
+        print("--- B. Explicit size 1600x900 ---")
+        testCGDisplayStream(label: "Explicit", w: 1600, h: 900, seconds: 10)
+        print("--- C. CGWindowList control ---")
+        testCGWindowList(seconds: 10)
+        print()
+        print("=== CONCLUSION ===")
+        print("Explicit group has frames(>=1/s) -> 3-level chain (auto->explicit->WindowList)")
+        print("Explicit group 0 frames         -> 2-level chain (current->timeout->WindowList)")
+        SWIFT_EOF
+
+    - name: Compile Swift program
+      run: |
+        swiftc /tmp/cgds-frames-count.swift -o /tmp/cgds-frames-count 2>&1
+        echo "Compile exit: $?"
+        ls -la /tmp/cgds-frames-count
+
+    - name: Run test (no display expected on CI)
+      run: |
+        /tmp/cgds-frames-count 2>&1 || true
+
+    - name: Upload results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: swift-t1-results
+        path: /tmp/cgds-frames-count
