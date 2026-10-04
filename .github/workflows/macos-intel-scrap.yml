@@ -114,7 +114,7 @@ jobs:
         echo "bootstrap exit: $?" >> $LOG
         cd "$GITHUB_WORKSPACE"
         echo "vcpkg install..." >> $LOG
-        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg >> $LOG 2>&1
+        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg --classic >> $LOG 2>&1
         echo "install exit: $?" >> $LOG
         echo "=== DONE vcpkg ===" >> $LOG
         cat $LOG
