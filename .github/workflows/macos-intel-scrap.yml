@@ -112,6 +112,10 @@ jobs:
         echo "bootstrap vcpkg..." >> $LOG
         ./bootstrap-vcpkg.sh -disableMetrics >> $LOG 2>&1
         echo "bootstrap exit: $?" >> $LOG
+        echo "install nasm..." >> $LOG
+        brew install nasm >> $LOG 2>&1
+        echo "nasm exit: $?" >> $LOG
+        which nasm >> $LOG 2>&1
         cd "$GITHUB_WORKSPACE"
         echo "vcpkg install..." >> $LOG
         "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg --classic >> $LOG 2>&1
