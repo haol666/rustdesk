@@ -8,6 +8,9 @@ on:
     paths:
       - 'libs/scrap/**'
 
+env:
+  VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+
 jobs:
   build:
     name: x86_64-apple-darwin (scrap)
@@ -18,9 +21,15 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install dependencies via Homebrew
+    - name: Setup vcpkg (classic mode with overlays)
       run: |
-        brew install libvpx libyuv aom opus
+        mkdir -p "$GITHUB_WORKSPACE/vcpkg"
+        cd "$GITHUB_WORKSPACE/vcpkg"
+        git clone https://github.com/microsoft/vcpkg.git .
+        git checkout $VCPKG_COMMIT_ID
+        ./bootstrap-vcpkg.sh -disableMetrics
+        cd "$GITHUB_WORKSPACE"
+        "$GITHUB_WORKSPACE/vcpkg/vcpkg" install libyuv libvpx aom --triplet x64-osx --overlay-ports ./res/vcpkg
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
@@ -30,4 +39,6 @@ jobs:
 
     - name: Build scrap library
       run: |
+        export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
+        export VCPKG_INSTALLED_ROOT="$VCPKG_ROOT/installed"
         cargo build -p scrap --target x86_64-apple-darwin
