@@ -72,5 +72,4 @@ jobs:
       with:
         name: libscrap-x86_64-apple-darwin
         path: |
-          target/x86_64-apple-darwin/debug/libscrap.a
-          target/x86_64-apple-darwin/debug/libscrap.dylib
+          target/x86_64-apple-darwin/debug/libscrap*
