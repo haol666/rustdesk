@@ -153,6 +153,12 @@ impl CGWindowListCapturer {
     ) -> Self {
         let should_stop = Arc::new(AtomicBool::new(false));
 
+        hbb_common::log::info!(
+            "CGWindowList fallback capturer starting ({}x{})",
+            width,
+            height
+        );
+
         let f_frame = frame.clone();
         let f_stop = should_stop.clone();
         std::thread::spawn(move || {
@@ -182,6 +188,8 @@ impl CGWindowListCapturer {
     ) {
         // Target ~30 fps (33ms per frame)
         let interval = std::time::Duration::from_millis(33);
+        let mut first_frame_done = false;
+        let mut consecutive_failures: u32 = 0;
 
         loop {
             if should_stop.load(Ordering::Relaxed) {
@@ -189,8 +197,32 @@ impl CGWindowListCapturer {
             }
 
             let data = match Self::capture_one(width, height) {
-                Some(d) => d,
+                Some(d) => {
+                    if !first_frame_done {
+                        first_frame_done = true;
+                        hbb_common::log::info!(
+                            "CGWindowList fallback: first frame captured ({} bytes)",
+                            d.0.len()
+                        );
+                    }
+                    if consecutive_failures >= 30 {
+                        hbb_common::log::info!(
+                            "CGWindowList fallback: recovered after {} consecutive failures",
+                            consecutive_failures
+                        );
+                    }
+                    consecutive_failures = 0;
+                    d
+                }
                 None => {
+                    consecutive_failures += 1;
+                    // Log every ~10s of consecutive failures (300 frames * 33ms)
+                    if consecutive_failures == 1 || consecutive_failures % 300 == 0 {
+                        hbb_common::log::warn!(
+                            "CGWindowList fallback: capture failed (attempt #{}, likely missing screen recording permission)",
+                            consecutive_failures
+                        );
+                    }
                     std::thread::sleep(interval);
                     continue;
                 }

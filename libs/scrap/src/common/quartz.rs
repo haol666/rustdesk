@@ -9,7 +9,10 @@ use std::{io, mem, time};
 const PROBE_DURATION: time::Duration = time::Duration::from_secs(3);
 
 pub struct Capturer {
-    inner: quartz::Capturer,
+    /// None when CGDisplayStream creation failed outright (direct fallback mode)
+    inner: Option<quartz::Capturer>,
+    width: usize,
+    height: usize,
     frame: Arc<Mutex<Option<quartz::Frame>>>,
     saved_raw_data: Vec<u8>,
     /// True after fallback switch (CGDisplayStream → CGWindowList)
@@ -31,12 +34,13 @@ impl Capturer {
         let degraded = Arc::new(AtomicBool::new(false));
         let frame_count = Arc::new(AtomicU64::new(0));
         let start_time = time::Instant::now();
+        let (w, h) = (display.width(), display.height());
 
         let f = frame.clone();
-        let inner = quartz::Capturer::new(
+        let inner_result = quartz::Capturer::new(
             display.0,
-            display.width(),
-            display.height(),
+            w,
+            h,
             quartz::PixelFormat::Argb8888,
             Default::default(),
             move |inner| {
@@ -44,27 +48,47 @@ impl Capturer {
                     *f = Some(inner);
                 }
             },
-        )
-        .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
+        );
 
-        // Launch a background probe thread: if CGDisplayStream produces
-        // zero frames within PROBE_DURATION, switch to CGWindowList fallback.
-        let f_deg = degraded.clone();
-        let f_fc = frame_count.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(PROBE_DURATION);
-            let count = f_fc.load(Ordering::Relaxed);
-            if count == 0 {
-                hbb_common::log::warn!(
-                    "CGDisplayStream produced 0 frames in {}s, switching to CGWindowList fallback",
-                    PROBE_DURATION.as_secs()
+        let inner = match inner_result {
+            Ok(c) => {
+                hbb_common::log::info!(
+                    "CGDisplayStream created ok ({}x{}), starting 3s frame probe",
+                    w,
+                    h
                 );
-                f_deg.store(true, Ordering::Relaxed);
+                // Normal mode: launch the probe thread
+                let f_deg = degraded.clone();
+                let f_fc = frame_count.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(PROBE_DURATION);
+                    let count = f_fc.load(Ordering::Relaxed);
+                    if count == 0 {
+                        hbb_common::log::warn!(
+                            "CGDisplayStream produced 0 frames in {}s, switching to CGWindowList fallback",
+                            PROBE_DURATION.as_secs()
+                        );
+                        f_deg.store(true, Ordering::Relaxed);
+                    }
+                });
+                Some(c)
             }
-        });
+            Err(e) => {
+                // CGDisplayStream creation failed outright (e.g. constructor
+                // returned NULL on some platforms) — start in fallback mode.
+                hbb_common::log::warn!(
+                    "CGDisplayStream creation failed (err: {:?}), starting CGWindowList fallback directly",
+                    e
+                );
+                degraded.store(true, Ordering::Relaxed);
+                None
+            }
+        };
 
         Ok(Capturer {
             inner,
+            width: w,
+            height: h,
             frame,
             saved_raw_data: Vec::new(),
             degraded,
@@ -76,11 +100,11 @@ impl Capturer {
     }
 
     pub fn width(&self) -> usize {
-        self.inner.width()
+        self.inner.as_ref().map(|c| c.width()).unwrap_or(self.width)
     }
 
     pub fn height(&self) -> usize {
-        self.inner.height()
+        self.inner.as_ref().map(|c| c.height()).unwrap_or(self.height)
     }
 }
 
