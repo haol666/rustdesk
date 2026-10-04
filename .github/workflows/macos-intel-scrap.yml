@@ -28,15 +28,13 @@ jobs:
         echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
         echo "HOME: $HOME"
         echo "which git: $(which git)"
-        echo "which cargo: $(which cargo)"
-        echo "which cmake: $(which cmake)"
+        echo "which cmake: $(which cmake || echo 'not found')"
         echo "git version: $(git --version)"
-        echo "cargo version: $(cargo --version)"
-        echo "cmake version: $(cmake --version | head -1)"
+        echo "cmake version: $(cmake --version 2>/dev/null | head -1 || echo 'not found')"
         echo "df -h:"
         df -h
-        echo "free -h:"
-        free -h
+        echo "vm_stat:"
+        vm_stat
 
     - name: Initialize hbb_common
       run: |
