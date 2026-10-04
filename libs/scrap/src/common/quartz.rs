@@ -55,7 +55,7 @@ impl Capturer {
             std::thread::sleep(PROBE_DURATION);
             let count = f_fc.load(Ordering::Relaxed);
             if count == 0 {
-                log::warn!(
+                hbb_common::log::warn!(
                     "CGDisplayStream produced 0 frames in {}s, switching to CGWindowList fallback",
                     PROBE_DURATION.as_secs()
                 );
@@ -96,7 +96,7 @@ impl crate::TraitCapturer for Capturer {
                 ));
             }
             // Read from the fallback frame channel
-            match self.fallback_frame.try_lock() {
+            return match self.fallback_frame.try_lock() {
                 Ok(mut handle) => {
                     let mut frame = None;
                     mem::swap(&mut frame, &mut handle);
@@ -116,7 +116,7 @@ impl crate::TraitCapturer for Capturer {
                 }
                 Err(TryLockError::WouldBlock) => Err(io::ErrorKind::WouldBlock.into()),
                 Err(TryLockError::Poisoned(..)) => Err(io::ErrorKind::Other.into()),
-            }
+            };
         }
 
         // Normal path: read from the main frame channel

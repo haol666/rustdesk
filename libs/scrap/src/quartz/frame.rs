@@ -5,9 +5,16 @@ use super::ffi::*;
 pub struct Frame {
     surface: Option<IOSurfaceRef>,
     inner: &'static [u8],
-    bgra: Vec<u8>,
+    pub(crate) bgra: Vec<u8>,
     bgra_stride: usize,
 }
+
+// Frame is shared between the poll thread and the caller through
+// Arc<Mutex<Option<Frame>>>. The IOSurfaceRef is only accessed while
+// holding the lock, and all refcounting (CFRetain/CFRelease) is done
+// inside Frame::new/Drop, so it is safe to send/sync between threads.
+unsafe impl Send for Frame {}
+unsafe impl Sync for Frame {}
 
 impl Frame {
     /// Create a Frame from an IOSurface (CGDisplayStream path)

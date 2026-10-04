@@ -210,7 +210,7 @@ impl CGWindowListCapturer {
         unsafe {
             // Create a CGColorSpace for the bitmap context
             let cs_name = CFStringCreateWithCString(
-                kCFAllocatorDefault,
+                kCFAllocatorDefault(),
                 "kCGColorSpaceGenericRGB\0".as_ptr() as *const i8,
                 kCFStringEncodingUTF8,
             );
@@ -244,7 +244,7 @@ impl CGWindowListCapturer {
 
             if cg_image.is_null() {
                 // No image available (e.g. screen locked)
-                let _ = CGBitmapContextRelease(context);
+                let _ = CGContextRelease(context);
                 CGColorSpaceRelease(color_space);
                 return None;
             }
@@ -272,12 +272,13 @@ impl CGWindowListCapturer {
             let result = if cf_data.is_null() {
                 CGImageRelease(result_image);
                 CGImageRelease(cg_image);
-                let _ = CGBitmapContextRelease(context);
+                let _ = CGContextRelease(context);
                 CGColorSpaceRelease(color_space);
                 None
             } else {
                 let ptr = CFDataGetBytePtr(cf_data);
                 let length = CFDataGetLength(cf_data) as usize;
+                let stride = CGImageGetBytesPerRow(result_image) as usize;
 
                 let mut bgra = Vec::with_capacity(length);
                 bgra.extend_from_slice(std::slice::from_raw_parts(ptr, length));
@@ -286,10 +287,10 @@ impl CGWindowListCapturer {
                 CGDataProviderRelease(provider);
                 CGImageRelease(result_image);
                 CGImageRelease(cg_image);
-                let _ = CGBitmapContextRelease(context);
+                let _ = CGContextRelease(context);
                 CGColorSpaceRelease(color_space);
 
-                Some((bgra, CGImageGetBytesPerRow(result_image) as usize))
+                Some((bgra, stride))
             };
 
             result

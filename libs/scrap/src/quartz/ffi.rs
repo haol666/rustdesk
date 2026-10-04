@@ -253,8 +253,8 @@ extern "C" {
 
 pub const kCGNullWindowID: u32 = 0;
 
-pub const kCGWindowListOptionOnScreenOnly: u32 = 1 << 0;
 pub const kCGWindowListOptionAll: u32 = 0;
+pub const kCGWindowListOptionOnScreenOnly: u32 = 1 << 0;
 pub const kCGWindowListOptionIncludingWindow: u32 = 1 << 1;
 
 pub const kCGWindowImageDefault: u32 = 0;
@@ -279,67 +279,81 @@ pub const kCGBitmapByteOrder32Little: u32 = 1 << 12;
 pub const kCGBitmapByteOrder16Little: u32 = 1 << 13;
 pub const kCGBitmapByteOrder32Big: u32 = 1 << 14;
 
-// CGColorSpace name constants (created at runtime via CFStringCreateWithCString)
+// CGImage / CGContext / CGColorSpace / CFData types
 pub type CGImageRef = *mut c_void;
 pub type CGDataProviderRef = *mut c_void;
 pub type CGColorSpaceRef = *mut c_void;
 pub type CFDataRef = *mut c_void;
-pub type CFStringRef = *const c_void;
-pub type CFAllocatorRef = *mut c_void;
 pub type CGContextRef = *mut c_void;
 
-pub static kCFAllocatorDefault: CFAllocatorRef = std::ptr::null_mut();
+// kCFAllocatorDefault is NULL (the default allocator). A function is used
+// instead of a `static` because `*mut c_void` is not Sync.
+pub fn kCFAllocatorDefault() -> CFAllocatorRef {
+    std::ptr::null_mut()
+}
 pub const kCFStringEncodingUTF8: u32 = 0x08000100;
 
-// CGImage
-pub fn CGImageGetWidth(image: CGImageRef) -> usize;
-pub fn CGImageGetHeight(image: CGImageRef) -> usize;
-pub fn CGImageGetBitsPerPixel(image: CGImageRef) -> usize;
-pub fn CGImageGetBytesPerRow(image: CGImageRef) -> usize;
-pub fn CGImageGetDataProvider(image: CGImageRef) -> CGDataProviderRef;
-pub fn CGImageGetAlphaInfo(image: CGImageRef) -> u32;
+#[link(name = "System", kind = "dylib")]
+#[link(name = "CoreGraphics", kind = "framework")]
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    // CGWindowList
+    pub fn CGWindowListCreateImage(
+        screenBounds: CGRect,
+        listOption: u32,
+        windowID: u32,
+        imageOption: u32,
+    ) -> CGImageRef;
 
-// CGDataProvider
-pub fn CGDataProviderCopyData(provider: CGDataProviderRef) -> CFDataRef;
-pub fn CGDataProviderRelease(provider: CGDataProviderRef);
+    // CGImage
+    pub fn CGImageGetWidth(image: CGImageRef) -> usize;
+    pub fn CGImageGetHeight(image: CGImageRef) -> usize;
+    pub fn CGImageGetBitsPerPixel(image: CGImageRef) -> usize;
+    pub fn CGImageGetBytesPerRow(image: CGImageRef) -> usize;
+    pub fn CGImageGetDataProvider(image: CGImageRef) -> CGDataProviderRef;
+    pub fn CGImageGetAlphaInfo(image: CGImageRef) -> u32;
+    pub fn CGImageRelease(image: CGImageRef);
 
-// CFData
-pub fn CFDataGetBytePtr(data: CFDataRef) -> *mut u8;
-pub fn CFDataGetLength(data: CFDataRef) -> isize;
-pub fn CFDataRelease(data: CFDataRef);
+    // CGDataProvider
+    pub fn CGDataProviderCopyData(provider: CGDataProviderRef) -> CFDataRef;
+    pub fn CGDataProviderRelease(provider: CGDataProviderRef);
 
-// CGBitmapContext
-pub fn CGBitmapContextCreate(
-    data: *mut c_void,
-    width: usize,
-    height: usize,
-    bitsPerComponent: usize,
-    bytesPerRow: usize,
-    colorSpace: CGColorSpaceRef,
-    bitmapInfo: u32,
-) -> CGContextRef;
+    // CFData
+    pub fn CFDataGetBytePtr(data: CFDataRef) -> *const u8;
+    pub fn CFDataGetLength(data: CFDataRef) -> isize;
+    pub fn CFDataRelease(data: CFDataRef);
 
-pub fn CGBitmapContextCreateImage(context: CGContextRef) -> CGImageRef;
+    // CGBitmapContext
+    pub fn CGBitmapContextCreate(
+        data: *mut c_void,
+        width: usize,
+        height: usize,
+        bitsPerComponent: usize,
+        bytesPerRow: usize,
+        colorSpace: CGColorSpaceRef,
+        bitmapInfo: u32,
+    ) -> CGContextRef;
 
-pub fn CGContextDrawImage(
-    context: CGContextRef,
-    rect: CGRect,
-    image: CGImageRef,
-);
+    pub fn CGBitmapContextCreateImage(context: CGContextRef) -> CGImageRef;
 
-pub fn CGBitmapContextGetData(context: CGContextRef) -> *mut c_void;
+    pub fn CGContextDrawImage(
+        context: CGContextRef,
+        rect: CGRect,
+        image: CGImageRef,
+    );
 
-pub fn CGContextRelease(context: CGContextRef);
+    pub fn CGBitmapContextGetData(context: CGContextRef) -> *mut c_void;
 
-// CGColorSpace
-pub fn CGColorSpaceCreateWithName(name: CFStringRef) -> CGColorSpaceRef;
-pub fn CGColorSpaceRelease(space: CGColorSpaceRef);
+    pub fn CGContextRelease(context: CGContextRef);
 
-// CFString
-pub fn CFStringCreateWithCString(
-    allocator: CFAllocatorRef,
-    cStr: *const i8,
-    encoding: u32,
-) -> CFStringRef;
+    // CGColorSpace
+    pub fn CGColorSpaceCreateWithName(name: CFStringRef) -> CGColorSpaceRef;
+    pub fn CGColorSpaceRelease(space: CGColorSpaceRef);
 
-pub fn CFRelease(cf: *const c_void);
+    // CFString
+    pub fn CFStringCreateWithCString(
+        allocator: CFAllocatorRef,
+        cStr: *const i8,
+        encoding: u32,
+    ) -> CFStringRef;
+}
