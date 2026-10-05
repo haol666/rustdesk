@@ -414,6 +414,24 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             #[cfg(target_os = "macos")]
             {
+                // Startup diagnostics: log screen-recording preflight,
+                // accessibility trust, and display sleep state once so the
+                // server log can distinguish permission failures from
+                // capture-layer bugs when frames don't arrive.
+                unsafe {
+                    let preflight = crate::platform::macos::is_can_screen_recording(false);
+                    let trusted = crate::platform::macos::is_process_trusted(false);
+                    extern "C" {
+                        fn CGMainDisplayID() -> u32;
+                        fn CGDisplayIsAsleep(d: u32) -> i32;
+                    }
+                    let disp = CGMainDisplayID();
+                    let asleep = CGDisplayIsAsleep(disp) != 0;
+                    log::info!(
+                        "macOS startup diagnostics: screen_recording_preflight={}, accessibility_trusted={}, main_display={}, display_asleep={}",
+                        preflight, trusted, disp, asleep
+                    );
+                }
                 let handler = std::thread::spawn(move || crate::start_server(true, false));
                 crate::tray::start_tray();
                 // prevent server exit when encountering errors from tray

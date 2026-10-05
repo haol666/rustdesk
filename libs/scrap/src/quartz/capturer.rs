@@ -38,6 +38,18 @@ impl Capturer {
         let fc = frame_count.clone();
         let handler: FrameAvailableHandler = ConcreteBlock::new(move |status, _, surface, _| {
             use self::CGDisplayStreamFrameStatus::*;
+            // Diagnostic: log handler invocations and non-frame statuses
+            // (FrameIdle = no change, FrameBlank = display asleep/blank,
+            //  Stopped = stream ended). Rate-limited.
+            static HANDLER_LOG_N: AtomicU64 = AtomicU64::new(0);
+            let hn = HANDLER_LOG_N.fetch_add(1, Ordering::Relaxed);
+            if hn < 3 || hn % 100 == 0 {
+                hbb_common::log::debug!(
+                    "CGDisplayStream handler #{}: status={:?} (Idle=no change, Blank=display asleep, Complete=frame)",
+                    hn,
+                    status
+                );
+            }
             if status == Stopped {
                 let mut lock = cloned_stopped.lock().unwrap();
                 *lock = true;
@@ -239,7 +251,18 @@ impl CGWindowListCapturer {
         width: usize,
         height: usize,
     ) -> Option<(Vec<u8>, usize)> {
+        // Rate-limit diagnostics: log details only on first failure and then
+        // every 300 failures (~30s at 100ms/frame), matching the outer loop cadence.
+        static DIAG_N: AtomicU64 = AtomicU64::new(0);
         unsafe {
+            let n = DIAG_N.fetch_add(1, Ordering::Relaxed);
+            let log_this = n == 0 || n % 300 == 0;
+
+            // Diagnostic: display sleep state + TCC preflight
+            let display_id = CGMainDisplayID();
+            let display_asleep = CGDisplayIsAsleep(display_id) != 0;
+            let preflight_ok = CGPreflightScreenCaptureAccess();
+
             // Create a CGColorSpace for the bitmap context
             let cs_name = CFStringCreateWithCString(
                 kCFAllocatorDefault(),
@@ -248,6 +271,15 @@ impl CGWindowListCapturer {
             );
             let color_space = CGColorSpaceCreateWithName(cs_name);
             CFRelease(cs_name);
+
+            if color_space.is_null() {
+                if log_this {
+                    hbb_common::log::error!(
+                        "capture_one: CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB) returned NULL"
+                    );
+                }
+                return None;
+            }
 
             // Create a CGBitmapContext for one BGRA frame
             let bitmap_info: u32 = kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little;
@@ -262,6 +294,14 @@ impl CGWindowListCapturer {
             );
 
             if context.is_null() {
+                if log_this {
+                    hbb_common::log::error!(
+                        "capture_one: CGBitmapContextCreate failed ({}x{}, cs={:?}) — color space or bitmap_info unsupported",
+                        width,
+                        height,
+                        color_space
+                    );
+                }
                 CGColorSpaceRelease(color_space);
                 return None;
             }
@@ -275,7 +315,14 @@ impl CGWindowListCapturer {
             );
 
             if cg_image.is_null() {
-                // No image available (e.g. screen locked)
+                // No image available — distinguish display sleep vs TCC denial
+                if log_this {
+                    hbb_common::log::warn!(
+                        "capture_one: CGWindowListCreateImage returned NULL — display_asleep={}, preflight_granted={} (display sleep and TCC denial both produce NULL)",
+                        display_asleep,
+                        preflight_ok
+                    );
+                }
                 let _ = CGContextRelease(context);
                 CGColorSpaceRelease(color_space);
                 return None;
@@ -296,12 +343,28 @@ impl CGWindowListCapturer {
 
             // Get the resulting CGImage from the context
             let result_image = CGBitmapContextCreateImage(context);
+            if result_image.is_null() {
+                if log_this {
+                    hbb_common::log::error!(
+                        "capture_one: CGBitmapContextCreateImage returned NULL after draw"
+                    );
+                }
+                CGImageRelease(cg_image);
+                let _ = CGContextRelease(context);
+                CGColorSpaceRelease(color_space);
+                return None;
+            }
 
             // Extract pixel data
             let provider = CGImageGetDataProvider(result_image);
             let cf_data = CGDataProviderCopyData(provider);
 
             let result = if cf_data.is_null() {
+                if log_this {
+                    hbb_common::log::error!(
+                        "capture_one: CGDataProviderCopyData returned NULL"
+                    );
+                }
                 CGImageRelease(result_image);
                 CGImageRelease(cg_image);
                 let _ = CGContextRelease(context);

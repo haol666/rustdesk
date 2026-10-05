@@ -64,9 +64,21 @@ impl Capturer {
                     std::thread::sleep(PROBE_DURATION);
                     let count = f_fc.load(Ordering::Relaxed);
                     if count == 0 {
+                        // Diagnostics: display sleep state + TCC preflight at
+                        // the moment of degradation, to distinguish an asleep
+                        // display from a permission problem (both yield 0 frames).
+                        let (display_asleep, preflight_granted) = unsafe {
+                            let id = crate::quartz::ffi::CGMainDisplayID();
+                            (
+                                crate::quartz::ffi::CGDisplayIsAsleep(id) != 0,
+                                crate::quartz::ffi::CGPreflightScreenCaptureAccess(),
+                            )
+                        };
                         hbb_common::log::warn!(
-                            "CGDisplayStream produced 0 frames in {}s, switching to CGWindowList fallback",
-                            PROBE_DURATION.as_secs()
+                            "CGDisplayStream produced 0 frames in {}s, switching to CGWindowList fallback — display_asleep={}, preflight_granted={} (asleep display and missing screen-recording permission both produce 0 frames; check the CGWindowList fallback diagnostics next)",
+                            PROBE_DURATION.as_secs(),
+                            display_asleep,
+                            preflight_granted
                         );
                         f_deg.store(true, Ordering::Relaxed);
                     }
