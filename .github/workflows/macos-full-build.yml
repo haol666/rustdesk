@@ -75,7 +75,7 @@ jobs:
       - name: Cache sccache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/sccache
+          path: ${{ github.workspace }}/.sccache
           key: sccache-macos-x64-${{ hashFiles('Cargo.lock') }}
 
       - name: Restore bridge files
@@ -127,7 +127,7 @@ jobs:
       - name: Build rustdesk
         env:
           RUSTC_WRAPPER: sccache
-          SCCACHE_DIR: ~/.cache/sccache
+          SCCACHE_DIR: ${{ github.workspace }}/.sccache
           SCCACHE_CACHE_SIZE: 2G
         run: |
           sccache --start-server
