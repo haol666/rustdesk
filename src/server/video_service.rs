@@ -1273,28 +1273,42 @@ fn handle_one_frame(
         }
         Err(e) => {
             *encode_fail_counter += 1;
+            // VideoToolbox hardware encoders legitimately buffer their first
+            // packets: pipeline warm-up returns no frame for the first ~0.6-3s
+            // even when the encoder is healthy. A strike count is the wrong
+            // yardstick for that window (30 strikes are ~1s at 30fps but
+            // ~30s at 1fps), so macOS hardware encoders get a session-time
+            // grace: the switch below cannot fire before the capture loop is
+            // 3s old, giving warm-up a bounded, fps-independent window;
+            // after that the normal strike budget applies again.
+            let hw_warmup_exempt = cfg!(target_os = "macos") && encoder.is_hardware();
             // Encoding errors are not frequent except on Android
             if !cfg!(target_os = "android") {
-                log::error!("encode fail: {e:?}, times: {}", *encode_fail_counter,);
+                if hw_warmup_exempt {
+                    // Warm-up failures arrive at frame rate (30/s at 30fps);
+                    // one line per 3s with the suppressed count instead.
+                    hbb_common::throttled_log!(
+                        Duration::from_secs(3),
+                        error,
+                        "encode fail (VideoToolbox warm-up): {e:?}, times: {}",
+                        *encode_fail_counter
+                    );
+                } else {
+                    log::error!("encode fail: {e:?}, times: {}", *encode_fail_counter,);
+                }
             }
-            // Hardware encoders may legitimately buffer the first packets:
-            // VideoToolbox (esp. the GVA path on older Intel/hackintosh) and
-            // MediaCodec both have pipeline warm-up where early encode calls
-            // return zero output frames even though the encoder is healthy.
-            // Give hardware encoders ~30 attempts (~3s at the 100ms frame
-            // cadence) before falling back; software encoders keep 3.
-            let max_fail_times = if encoder.is_hardware() {
-                30
+            let max_fail_times = if cfg!(target_os = "android") && encoder.is_hardware() {
+                9
             } else {
                 3
             };
             let repeat = !encoder.latency_free();
             // repeat encoders can reach max_fail_times on the first frame;
-            // hardware encoders are exempt from the fast first-frame switch
-            // because their initial pipeline warm-up legitimately returns
-            // zero-frame results (see comment above).
-            if (first && !repeat && !encoder.is_hardware())
-                || *encode_fail_counter >= max_fail_times
+            // macOS hardware encoders are exempt from the fast first-frame
+            // switch for the warm-up reason above.
+            let warmup_grace_over = !hw_warmup_exempt || ms >= 3_000;
+            if (first && !repeat && !hw_warmup_exempt)
+                || (*encode_fail_counter >= max_fail_times && warmup_grace_over)
             {
                 *encode_fail_counter = 0;
                 if encoder.is_hardware() {

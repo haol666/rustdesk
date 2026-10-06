@@ -1,8 +1,12 @@
 use crate::{quartz, Frame, Pixfmt};
-use std::marker::PhantomData;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, TryLockError};
-use std::{io, mem, time};
+use std::{
+    io,
+    marker::PhantomData,
+    mem,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    sync::{Arc, Mutex, TryLockError},
+    time,
+};
 
 /// Probing duration: if CGDisplayStream produces zero frames within this
 /// window after start, we switch to the CGWindowList fallback capturer.
@@ -25,6 +29,9 @@ pub struct Capturer {
     fallback_frame: Arc<Mutex<Option<quartz::Frame>>>,
     /// The CGWindowList fallback capturer (None until degradation triggers)
     fallback: Option<quartz::CGWindowListCapturer>,
+    /// Bounds of the selected display in global screen coordinates; the
+    /// CGWindowList fallback captures exactly this rect.
+    display_bounds: quartz::ffi::CGRect,
 }
 
 impl Capturer {
@@ -35,6 +42,7 @@ impl Capturer {
         let frame_count = Arc::new(AtomicU64::new(0));
         let start_time = time::Instant::now();
         let (w, h) = (display.width(), display.height());
+        let display_bounds = display.0.bounds();
 
         let f = frame.clone();
         let inner_result = quartz::Capturer::new(
@@ -97,6 +105,7 @@ impl Capturer {
             start_time,
             fallback_frame,
             fallback: None,
+            display_bounds,
         })
     }
 
@@ -117,6 +126,7 @@ impl crate::TraitCapturer for Capturer {
                 self.fallback = Some(quartz::CGWindowListCapturer::new(
                     self.width(),
                     self.height(),
+                    self.display_bounds,
                     self.fallback_frame.clone(),
                 ));
             }
