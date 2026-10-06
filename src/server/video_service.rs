@@ -1277,14 +1277,25 @@ fn handle_one_frame(
             if !cfg!(target_os = "android") {
                 log::error!("encode fail: {e:?}, times: {}", *encode_fail_counter,);
             }
-            let max_fail_times = if cfg!(target_os = "android") && encoder.is_hardware() {
-                9
+            // Hardware encoders may legitimately buffer the first packets:
+            // VideoToolbox (esp. the GVA path on older Intel/hackintosh) and
+            // MediaCodec both have pipeline warm-up where early encode calls
+            // return zero output frames even though the encoder is healthy.
+            // Give hardware encoders ~30 attempts (~3s at the 100ms frame
+            // cadence) before falling back; software encoders keep 3.
+            let max_fail_times = if encoder.is_hardware() {
+                30
             } else {
                 3
             };
             let repeat = !encoder.latency_free();
-            // repeat encoders can reach max_fail_times on the first frame
-            if (first && !repeat) || *encode_fail_counter >= max_fail_times {
+            // repeat encoders can reach max_fail_times on the first frame;
+            // hardware encoders are exempt from the fast first-frame switch
+            // because their initial pipeline warm-up legitimately returns
+            // zero-frame results (see comment above).
+            if (first && !repeat && !encoder.is_hardware())
+                || *encode_fail_counter >= max_fail_times
+            {
                 *encode_fail_counter = 0;
                 if encoder.is_hardware() {
                     encoder.disable();
