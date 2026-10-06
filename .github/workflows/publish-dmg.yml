@@ -6,7 +6,7 @@ on:
       run_id:
         description: 'Actions run ID containing the DMG artifact'
         required: false
-        default: '37212928951'
+        default: '37409318525'
 
 jobs:
   publish:
@@ -20,7 +20,7 @@ jobs:
         with:
           name: rustdesk-unsigned-macos-x86_64
           path: ./dist
-          run-id: ${{ github.event.inputs.run_id || '37212928951' }}
+          run-id: ${{ github.event.inputs.run_id || '37409318525' }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Show downloaded files
@@ -29,29 +29,34 @@ jobs:
           echo "---"
           file ./dist/*.dmg || true
 
-      # 重命名 DMG（带 run-id），避免 ghfast CDN 缓存命中旧版本
+      # 重命名 DMG（带 run-id），避免 CDN 缓存命中旧版本
       - name: Rename DMG with run id
         run: |
           cd dist
-          RUN_ID="${{ github.event.inputs.run_id || '37212928951' }}"
+          RUN_ID="${{ github.event.inputs.run_id || '37409318525' }}"
           shopt -s nullglob
           dmgs=( *.dmg )
           echo "found ${#dmgs[@]} dmg file(s)"
           for f in "${dmgs[@]}"; do
-            mv -v "$f" "rustdesk-t5-r${RUN_ID}.dmg"
+            mv -v "$f" "rustdesk-h264-v1-r${RUN_ID}.dmg"
             break
           done
           ls -la
 
-      # 创建 prerelease 并上传 DMG（公开可下载）
+      # 创建正式 release 并上传 DMG（公开可下载）
       - name: Create release and upload DMG
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: t5-test-dmg
-          name: "T5 test build (CGWindowList fallback)"
+          tag_name: h264-v1
+          name: "H264 硬编码初稿"
           prerelease: true
           files: dist/*.dmg
           body: |
-            Test build for T5 verification.
-            Contains CGDisplayStream → CGWindowList fallback.
-            Not for production use.
+            RustDesk macOS x86_64 — H264 VideoToolbox 硬编码初稿。
+
+            核心修复：
+            - CGWindowList fallback 位图常量修正（ffi.rs，0x1001 → 0x2002）
+            - CGDisplayStream 帧计数器统一，主路径误降级修复
+            - hwcodec 检测改为硬编语义（allow_sw=0），正确剔除不可用 HEVC
+            - VideoToolbox 硬编首帧 warm-up 容忍（3 → 30 次）
+            - CI 缓存优化（vcpkg installed + sccache），构建约 12 分钟
