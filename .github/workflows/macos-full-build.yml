@@ -7,7 +7,6 @@ env:
   MAC_RUST_VERSION: "1.81" # required for macos, https://github.com/yury/cidre requires 1.81
   FLUTTER_VERSION: "3.24.5"
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
-  VCPKG_BINARY_SOURCES: "x-gha,readwrite" # GitHub Actions binary caching: first run compiles, subsequent runs restore from cache (~16min → ~1min)
   VERSION: "1.5.0-fallback"
 
 jobs:
@@ -76,7 +75,7 @@ jobs:
       - name: Cache sccache
         uses: actions/cache@v4
         with:
-          path: ~/Library/Caches/Mozilla.sccache
+          path: ~/.cache/sccache
           key: sccache-macos-x64-${{ hashFiles('Cargo.lock') }}
 
       - name: Restore bridge files
@@ -84,6 +83,16 @@ jobs:
         with:
           name: bridge-artifact
           path: ./
+
+      - name: Cache vcpkg installed + binary archives
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/vcpkg/installed
+            ~/.cache/vcpkg/archives
+          key: vcpkg-macos-x64-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('res/vcpkg/**/vcpkg.json', 'res/vcpkg/**/portfile.cmake') }}
+          restore-keys: |
+            vcpkg-macos-x64-${{ env.VCPKG_COMMIT_ID }}-
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -118,11 +127,12 @@ jobs:
       - name: Build rustdesk
         env:
           RUSTC_WRAPPER: sccache
+          SCCACHE_DIR: ~/.cache/sccache
           SCCACHE_CACHE_SIZE: 2G
         run: |
-          sccache --start-server || true
+          sccache --start-server
           ./build.py --flutter --hwcodec --unix-file-copy-paste
-          sccache --show-stats || true
+          sccache --show-stats
 
       - name: Create unsigned dmg
         run: |
