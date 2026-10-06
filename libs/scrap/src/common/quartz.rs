@@ -43,6 +43,7 @@ impl Capturer {
             h,
             quartz::PixelFormat::Argb8888,
             Default::default(),
+            frame_count.clone(),
             move |inner| {
                 if let Ok(mut f) = f.lock() {
                     *f = Some(inner);

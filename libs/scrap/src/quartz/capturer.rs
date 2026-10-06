@@ -24,17 +24,21 @@ pub struct Capturer {
 }
 
 impl Capturer {
+    /// `frame_count` must be supplied by the caller (the common-layer wrapper
+    /// shares this Arc with its 3s probe thread), otherwise the probe would
+    /// always read 0 and degrade to the CGWindowList fallback even while the
+    /// main path is producing frames.
     pub fn new<F: Fn(Frame) + 'static>(
         display: Display,
         width: usize,
         height: usize,
         format: PixelFormat,
         config: Config,
+        frame_count: Arc<AtomicU64>,
         handler: F,
     ) -> Result<Capturer, CGError> {
         let stopped = Arc::new(Mutex::new(false));
         let cloned_stopped = stopped.clone();
-        let frame_count = Arc::new(AtomicU64::new(0));
         let fc = frame_count.clone();
         let handler: FrameAvailableHandler = ConcreteBlock::new(move |status, _, surface, _| {
             use self::CGDisplayStreamFrameStatus::*;

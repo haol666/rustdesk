@@ -269,19 +269,23 @@ pub const kCGWindowImageBestResolution: u32 = 1 << 3;
 pub const kCGWindowImageNominalResolution: u32 = 1 << 4;
 
 // CGBitmapInfo / CGImageAlphaInfo (subset used by CGBitmapContext)
+// Values per Apple's CGImage.h / CGBitmapContext.h — these are part of the
+// ABI and MUST NOT be renumbered: a wrong bitmap_info makes
+// CGBitmapContextCreate return NULL (e.g. 16-bit byte order combined with
+// 32bpp was silently produced by the previous wrong constants).
 pub const kCGImageAlphaNone: u32 = 0;
-pub const kCGImageAlphaPremultiplied: u32 = 1;
-pub const kCGImageAlphaPremultipliedFirst: u32 = 1 << 0;
-pub const kCGImageAlphaPremultipliedLast: u32 = 1 << 1;
-pub const kCGImageAlphaNonpremultiplied: u32 = 2;
-pub const kCGImageAlphaNonpremultipliedFirst: u32 = 2 << 0;
-pub const kCGImageAlphaNonpremultipliedLast: u32 = 3 << 0;
-pub const kCGImageAlphaNoneSkipFirst: u32 = 3 << 0;
-pub const kCGImageAlphaNoneSkipLast: u32 = 4 << 0;
-pub const kCGImageByteOrderDefault: u32 = 0;
-pub const kCGBitmapByteOrder32Little: u32 = 1 << 12;
-pub const kCGBitmapByteOrder16Little: u32 = 1 << 13;
-pub const kCGBitmapByteOrder32Big: u32 = 1 << 14;
+pub const kCGImageAlphaPremultipliedLast: u32 = 1;
+pub const kCGImageAlphaPremultipliedFirst: u32 = 2;
+pub const kCGImageAlphaLast: u32 = 3;
+pub const kCGImageAlphaFirst: u32 = 4;
+pub const kCGImageAlphaNoneSkipLast: u32 = 5;
+pub const kCGImageAlphaNoneSkipFirst: u32 = 6;
+pub const kCGImageAlphaOnly: u32 = 7;
+pub const kCGImageByteOrderDefault: u32 = 0 << 12;
+pub const kCGBitmapByteOrder16Little: u32 = 1 << 12;
+pub const kCGBitmapByteOrder32Little: u32 = 2 << 12;
+pub const kCGBitmapByteOrder16Big: u32 = 3 << 12;
+pub const kCGBitmapByteOrder32Big: u32 = 4 << 12;
 
 // CGImage / CGContext / CGColorSpace / CFData types
 pub type CGImageRef = *mut c_void;
