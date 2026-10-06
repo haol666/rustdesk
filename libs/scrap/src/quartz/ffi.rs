@@ -200,10 +200,6 @@ extern "C" {
     pub fn CGDisplayIsMain(display: u32) -> i32;
     pub fn CGDisplayIsActive(display: u32) -> i32;
     pub fn CGDisplayIsOnline(display: u32) -> i32;
-    pub fn CGDisplayIsAsleep(display: u32) -> i32;
-
-    // Screen capture TCC preflight (macOS 10.15+)
-    pub fn CGPreflightScreenCaptureAccess() -> bool;
 
     pub fn CGDisplayBounds(display: u32) -> CGRect;
     pub fn BackingScaleFactor(display: u32) -> f32;

@@ -1283,27 +1283,6 @@ pub fn handle_mouse_simulation_(evt: &MouseEvent, conn: i32) {
         return;
     }
 
-    // Diagnostic: confirm mouse events reach the injection layer
-    // (rate-limited: first event + every 200th)
-    static MOUSE_EVT_N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    {
-        use std::sync::atomic::Ordering;
-        let n = MOUSE_EVT_N.fetch_add(1, Ordering::Relaxed);
-        if n == 0 || n % 200 == 0 {
-            let evt_type = evt.mask & MOUSE_TYPE_MASK;
-            let buttons = evt.mask >> 3;
-            log::debug!(
-                "mouse input #{}: conn={}, type={:#x}, buttons={:#x}, x={}, y={} — event reached injection layer",
-                n,
-                conn,
-                evt_type,
-                buttons,
-                evt.x,
-                evt.y
-            );
-        }
-    }
-
     #[cfg(windows)]
     crate::platform::windows::try_change_desktop();
     let buttons = evt.mask >> 3;
