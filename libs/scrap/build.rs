@@ -119,51 +119,6 @@ fn link_homebrew_m1(name: &str) -> PathBuf {
     include
 }
 
-/// Link homebrew package(for Mac Intel).
-fn link_homebrew_intel(name: &str) -> PathBuf {
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    if target_os != "macos" || target_arch != "x86_64" {
-        panic!("Couldn't find VCPKG_ROOT, also can't fallback to homebrew because it's only for macos x86_64.");
-    }
-    let mut path = PathBuf::from("/usr/local/Cellar");
-    path.push(name);
-    let entries = if let Ok(dir) = std::fs::read_dir(&path) {
-        dir
-    } else {
-        panic!("Could not find package in {}. Make sure your homebrew and package {} are all installed.", path.to_str().unwrap(), &name);
-    };
-    let mut directories = entries
-        .into_iter()
-        .filter(|x| x.is_ok())
-        .map(|x| x.unwrap().path())
-        .filter(|x| x.is_dir())
-        .collect::<Vec<_>>();
-    // Find the newest version.
-    directories.sort_unstable();
-    if directories.is_empty() {
-        panic!(
-            "There's no installed version of {} in /usr/local/Cellar",
-            name
-        );
-    }
-    path.push(directories.pop().unwrap());
-    // Link the library.
-    println!(
-        "cargo:rustc-link-lib=static={}",
-        name.trim_start_matches("lib")
-    );
-    // Add the library path.
-    println!(
-        "cargo:rustc-link-search={}",
-        path.join("lib").to_str().unwrap()
-    );
-    // Add the include path.
-    let include = path.join("include");
-    println!("cargo:include={}", include.to_str().unwrap());
-    include
-}
-
 /// Find package. By default, it will try to find vcpkg first, then homebrew(currently only for Mac M1).
 /// If building for linux and feature "linux-pkg-config" is enabled, will try to use pkg-config
 /// unless check fails (e.g. NO_PKG_CONFIG_libyuv=1)
@@ -177,14 +132,8 @@ fn find_package(name: &str) -> Vec<PathBuf> {
     } else if let Ok(vcpkg_root) = std::env::var("VCPKG_ROOT") {
         vec![link_vcpkg(vcpkg_root.into(), name)]
     } else {
-        // Try using homebrew (supports both Apple Silicon and Intel Macs)
-        let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
-        let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-        if target_os == "macos" && target_arch == "x86_64" {
-            vec![link_homebrew_intel(name)]
-        } else {
-            vec![link_homebrew_m1(name)]
-        }
+        // Try using homebrew
+        vec![link_homebrew_m1(name)]
     }
 }
 
