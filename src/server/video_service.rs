@@ -1264,9 +1264,6 @@ fn handle_one_frame(
     })?;
 
     let mut send_conn_ids: HashSet<i32> = Default::default();
-    // first_frame stays true until the first successful encode, so the Err
-    // branch can distinguish warm-up (first == true → 30-strike budget) from
-    // a post-warm-up failure (first == false → strict 3-strike budget).
     let first = *first_frame;
     match encoder.encode_to_message(frame, ms) {
         Ok(mut vf) => {
@@ -1283,50 +1280,29 @@ fn handle_one_frame(
             send_conn_ids = sp.send_video_frame(msg);
         }
         Err(e) => {
+            // VideoToolbox pipelines buffer their first packets: the encoder
+            // accepts the frame but returns no output yet (FFmpeg got_packet=0
+            // / OBS empty-queue semantics). hwcodec surfaces this as
+            // "encoder warm-up pending" -- not an error. The repeat-encode
+            // path keeps feeding the pipeline; the packet comes out on a
+            // later call. No strike is counted.
+            if e.to_string() == "encoder warm-up pending" {
+                return Ok(Default::default());
+            }
+            // Real encode errors: keep the existing 3-strike fallback.
             *encode_fail_counter += 1;
             // Encoding errors are not frequent except on Android
             if !cfg!(target_os = "android") {
-                if cfg!(target_os = "macos") && encoder.is_hardware() {
-                    // Warm-up failures arrive at frame rate (30/s at 30fps);
-                    // one line per 3s with the suppressed count instead.
-                    hbb_common::throttled_log!(
-                        Duration::from_secs(3),
-                        error,
-                        "encode fail (VideoToolbox warm-up): {e:?}, times: {}",
-                        *encode_fail_counter
-                    );
-                } else {
-                    log::error!("encode fail: {e:?}, times: {}", *encode_fail_counter,);
-                }
+                log::error!("encode fail: {e:?}, times: {}", *encode_fail_counter,);
             }
-            // VideoToolbox hardware encoders on macOS legitimately buffer their
-            // first packets: pipeline warm-up returns no frame for the first
-            // ~0.6-1s even when the encoder is healthy (same class of behavior
-            // as Android MediaCodec, which already gets a larger budget).
-            // A strike count is a natural fit: it scales with the number of
-            // real encode attempts, not wall-clock time, so it does not delay
-            // fallback for a truly broken encoder on a slow-capturing screen.
-            // A successful encode resets the counter to 0, so a warm-up that
-            // completes within 30 attempts has zero ongoing impact: the next
-            // failure streak starts from 0 and the strict 3-strike budget
-            // applies to the warmed-up encoder, same as upstream.
-            // macOS hardware encoders get 30 attempts during warm-up (before
-            // the first successful encode); once warm-up completes, first == false
-            // and the strict 3-strike budget applies, same as upstream.
-            let max_fail_times = if cfg!(target_os = "macos") && encoder.is_hardware() && first {
-                30
-            } else if cfg!(target_os = "android") && encoder.is_hardware() {
+            let max_fail_times = if cfg!(target_os = "android") && encoder.is_hardware() {
                 9
             } else {
                 3
             };
             let repeat = !encoder.latency_free();
-            // repeat encoders can reach max_fail_times on the first frame;
-            // macOS hardware encoders are exempt from the fast first-frame
-            // switch for the warm-up reason above.
-            let hw_warmup_exempt = cfg!(target_os = "macos") && encoder.is_hardware();
-            if (first && !repeat && !hw_warmup_exempt)
-                || *encode_fail_counter >= max_fail_times {
+            // repeat encoders can reach max_fail_times on the first frame
+            if (first && !repeat) || *encode_fail_counter >= max_fail_times {
                 *encode_fail_counter = 0;
                 if encoder.is_hardware() {
                     encoder.disable();
