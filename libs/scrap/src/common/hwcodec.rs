@@ -134,7 +134,7 @@ impl EncoderApi for HwRamEncoder {
             }
             Ok(vf)
         } else {
-            Err(anyhow!("no valid frame"))
+            Err(anyhow!("encoder warm-up pending"))
         }
     }
 
@@ -236,7 +236,7 @@ impl HwRamEncoder {
                 data.append(v);
                 Ok(data)
             }
-            Err(_) => Ok(Vec::<EncodeFrame>::new()),
+            Err(code) => bail!("encoder error: {}", code),
         }
     }
 
