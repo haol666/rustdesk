@@ -727,8 +727,7 @@ fn run(vs: VideoService) -> ResultType<()> {
     let repeat_encode_max = 10;
     let mut encode_fail_counter = 0;
     let mut first_frame = true;
-    // Set once the encoder emits its first packet; until then it may legitimately return nothing.
-    let mut encoder_warmed_up = false;
+    let mut warmup_start: Option<Instant> = None;
     let capture_width = c.width;
     let capture_height = c.height;
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
@@ -745,12 +744,7 @@ fn run(vs: VideoService) -> ResultType<()> {
             &mut second_instant,
             &sp.name(),
         )?;
-        // On macOS, a refresh here would destroy a hardware encoder that has been fed a frame but
-        // not yet produced its first packet, restarting the warm-up forever. Defer until it has;
-        // one that never does is still switched away from by max_fail_times in handle_one_frame.
-        if sp.is_option_true(OPTION_REFRESH)
-            && refresh_allowed(first_frame, encoder_warmed_up, encoder.latency_free())
-        {
+        if sp.is_option_true(OPTION_REFRESH) {
             if vs.source.is_monitor() {
                 let _ = try_broadcast_display_changed(&sp, display_idx, &c, true);
             }
@@ -864,10 +858,25 @@ fn run(vs: VideoService) -> ResultType<()> {
                         recorder.clone(),
                         &mut encode_fail_counter,
                         &mut first_frame,
-                        &mut encoder_warmed_up,
                         capture_width,
                         capture_height,
                     )?;
+                    if send_conn_ids.is_empty() {
+                        // Warm-up pending: bounded 3s window.
+                        if warmup_start.is_none() {
+                            warmup_start = Some(Instant::now());
+                        }
+                        if warmup_start.as_ref().unwrap().elapsed().as_secs() >= 3 {
+                            warmup_start = None;
+                            if encoder.is_hardware() {
+                                encoder.disable();
+                                log::error!("switch due to warm-up timeout (3s with no output)");
+                                bail!("SWITCH");
+                            }
+                        }
+                    } else {
+                        warmup_start = None;
+                    }
                     frame_controller.set_send(now, send_conn_ids);
                     send_counter += 1;
                 }
@@ -918,6 +927,12 @@ fn run(vs: VideoService) -> ResultType<()> {
                 }
                 if !encoder.latency_free() && yuv.len() > 0 {
                     // yun.len() > 0 means the frame is not texture.
+                    // During warm-up, keep feeding the encoder so the
+                    // pipeline can produce its first packet even on a
+                    // static desktop.
+                    if warmup_start.is_some() {
+                        repeat_encode_counter = 0;
+                    }
                     if repeat_encode_counter < repeat_encode_max {
                         repeat_encode_counter += 1;
                         let send_conn_ids = handle_one_frame(
@@ -929,10 +944,24 @@ fn run(vs: VideoService) -> ResultType<()> {
                             recorder.clone(),
                             &mut encode_fail_counter,
                             &mut first_frame,
-                            &mut encoder_warmed_up,
                             capture_width,
                             capture_height,
                         )?;
+                        if send_conn_ids.is_empty() {
+                            if warmup_start.is_none() {
+                                warmup_start = Some(Instant::now());
+                            }
+                            if warmup_start.as_ref().unwrap().elapsed().as_secs() >= 3 {
+                                warmup_start = None;
+                                if encoder.is_hardware() {
+                                    encoder.disable();
+                                    log::error!("switch due to warm-up timeout (3s with no output)");
+                                    bail!("SWITCH");
+                                }
+                            }
+                        } else {
+                            warmup_start = None;
+                        }
                         frame_controller.set_send(now, send_conn_ids);
                         send_counter += 1;
                     }
@@ -1243,12 +1272,6 @@ fn check_privacy_mode_changed(
 }
 
 #[inline]
-fn refresh_allowed(unfed: bool, warmed_up: bool, latency_free: bool) -> bool {
-    // Only VideoToolbox has been seen to need this; other platforms keep refreshing as before.
-    !cfg!(target_os = "macos") || unfed || warmed_up || latency_free
-}
-
-#[inline]
 fn handle_one_frame(
     display: usize,
     sp: &GenericService,
@@ -1258,7 +1281,6 @@ fn handle_one_frame(
     recorder: Arc<Mutex<Option<Recorder>>>,
     encode_fail_counter: &mut usize,
     first_frame: &mut bool,
-    encoder_warmed_up: &mut bool,
     width: usize,
     height: usize,
 ) -> ResultType<HashSet<i32>> {
@@ -1277,7 +1299,6 @@ fn handle_one_frame(
     match encoder.encode_to_message(frame, ms) {
         Ok(mut vf) => {
             *encode_fail_counter = 0;
-            *encoder_warmed_up = true;
             vf.display = display as _;
             let mut msg = Message::new();
             msg.set_video_frame(vf);
@@ -1289,6 +1310,14 @@ fn handle_one_frame(
             send_conn_ids = sp.send_video_frame(msg);
         }
         Err(e) => {
+            // Encoder warm-up (empty output) is flow control, not an error
+            // (FFmpeg got_packet=0 / OBS empty-queue). Return an empty set
+            // so the caller can track the warm-up window and apply a
+            // bounded timeout.
+            if e.to_string() == "encoder warm-up pending" {
+                return Ok(Default::default());
+            }
+            // Real encode errors: existing 3-strike fallback.
             *encode_fail_counter += 1;
             // Encoding errors are not frequent except on Android
             if !cfg!(target_os = "android") {
@@ -1540,23 +1569,5 @@ fn handle_screenshot(screenshot: Screenshot, msg: String, w: usize, h: usize, da
         .send((hbb_common::tokio::time::Instant::now(), Arc::new(msg_out)))
     {
         log::error!("Failed to send screenshot, {}", e);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::refresh_allowed;
-
-    #[test]
-    fn refresh_waits_for_hw_encoder_warmup() {
-        // Deferred on macOS only; everywhere else a refresh is always allowed.
-        assert_eq!(
-            refresh_allowed(false, false, false),
-            !cfg!(target_os = "macos")
-        );
-        assert!(refresh_allowed(false, true, false));
-        assert!(refresh_allowed(false, false, true));
-        // Nothing fed yet: no warm-up to lose, and a refresh can restart a stalled capturer.
-        assert!(refresh_allowed(true, false, false));
     }
 }
