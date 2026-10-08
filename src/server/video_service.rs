@@ -727,6 +727,7 @@ fn run(vs: VideoService) -> ResultType<()> {
     let repeat_encode_max = 10;
     let mut encode_fail_counter = 0;
     let mut first_frame = true;
+    let mut warmup_start: Option<Instant> = None;
     let capture_width = c.width;
     let capture_height = c.height;
     let (mut second_instant, mut send_counter) = (Instant::now(), 0);
@@ -857,6 +858,7 @@ fn run(vs: VideoService) -> ResultType<()> {
                         recorder.clone(),
                         &mut encode_fail_counter,
                         &mut first_frame,
+                        &mut warmup_start,
                         capture_width,
                         capture_height,
                     )?;
@@ -910,6 +912,12 @@ fn run(vs: VideoService) -> ResultType<()> {
                 }
                 if !encoder.latency_free() && yuv.len() > 0 {
                     // yun.len() > 0 means the frame is not texture.
+                    // During warm-up, keep feeding the encoder even on a
+                    // static desktop so the pipeline can produce its first
+                    // packet within the bounded warm-up window.
+                    if warmup_start.is_some() {
+                        repeat_encode_counter = 0;
+                    }
                     if repeat_encode_counter < repeat_encode_max {
                         repeat_encode_counter += 1;
                         let send_conn_ids = handle_one_frame(
@@ -921,6 +929,7 @@ fn run(vs: VideoService) -> ResultType<()> {
                             recorder.clone(),
                             &mut encode_fail_counter,
                             &mut first_frame,
+                            &mut warmup_start,
                             capture_width,
                             capture_height,
                         )?;
@@ -1243,6 +1252,7 @@ fn handle_one_frame(
     recorder: Arc<Mutex<Option<Recorder>>>,
     encode_fail_counter: &mut usize,
     first_frame: &mut bool,
+    warmup_start: &mut Option<Instant>,
     width: usize,
     height: usize,
 ) -> ResultType<HashSet<i32>> {
@@ -1261,6 +1271,7 @@ fn handle_one_frame(
     match encoder.encode_to_message(frame, ms) {
         Ok(mut vf) => {
             *encode_fail_counter = 0;
+            *warmup_start = None;
             vf.display = display as _;
             let mut msg = Message::new();
             msg.set_video_frame(vf);
@@ -1272,6 +1283,26 @@ fn handle_one_frame(
             send_conn_ids = sp.send_video_frame(msg);
         }
         Err(e) => {
+            // Encoder warm-up (empty output) is flow control, not an error
+            // (FFmpeg got_packet=0 / OBS empty-queue). A bounded 3s window
+            // gives the pipeline time to produce its first packet; after
+            // that the encoder is considered unhealthy and falls back.
+            if e.to_string() == "encoder warm-up pending" {
+                if warmup_start.is_none() {
+                    *warmup_start = Some(Instant::now());
+                }
+                if warmup_start.as_ref().unwrap().elapsed().as_secs() < 3 {
+                    return Ok(Default::default());
+                }
+                // Bounded warm-up exceeded: encoder is unhealthy.
+                *warmup_start = None;
+                if encoder.is_hardware() {
+                    encoder.disable();
+                    log::error!("switch due to warm-up timeout (3s with no output)");
+                    bail!("SWITCH");
+                }
+            }
+            // Real encode errors: existing 3-strike fallback.
             *encode_fail_counter += 1;
             // Encoding errors are not frequent except on Android
             if !cfg!(target_os = "android") {
