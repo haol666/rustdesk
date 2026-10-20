@@ -884,13 +884,13 @@ fn run(vs: VideoService) -> ResultType<()> {
                         capture_height,
                     )?;
                     static_refresh.on_frame_encoded(&result);
-                    frame_controller.set_send(now, result.send_conn_ids);
                     if check_warmup_timeout(&mut warmup_start, &result.send_conn_ids) {
                         warmup_start = None;
                         encoder.disable();
                         log::error!("switch due to warm-up timeout (3s with no output)");
                         bail!("SWITCH");
                     }
+                    frame_controller.set_send(now, result.send_conn_ids);
                     send_counter += 1;
                 }
                 #[cfg(windows)]
