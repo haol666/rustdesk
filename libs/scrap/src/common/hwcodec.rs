@@ -1,4 +1,4 @@
-use crate::{
+﻿use crate::{
     codec::{base_bitrate, codec_thread_num, enable_hwcodec_option, EncoderApi, EncoderCfg},
     convert::*,
     CodecFormat, EncodeInput, ImageFormat, ImageRgb, Pixfmt, HW_STRIDE_ALIGN,
@@ -137,7 +137,7 @@ impl EncoderApi for HwRamEncoder {
             }
             Ok(vf)
         } else {
-            Err(anyhow!("no valid frame"))
+            Err(anyhow!("encoder warm-up pending"))
         }
     }
 
