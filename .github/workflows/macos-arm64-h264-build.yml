@@ -5,17 +5,17 @@ on:
 
 env:
   MAC_RUST_VERSION: "1.81" # required for macos, https://github.com/yury/cidre requires 1.81
-  FLUTTER_VERSION: "3.24.5"
+  FLUTTER_VERSION: "3.44.9" # arm64 needs 3.44 for the NSTextInputContext crash fix (#16817); x86 stays on 3.24.5
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
-  VERSION: "1.5.0-m2h264"
+  VERSION: "1.5.3-m2h264"
 
 jobs:
   generate-bridge:
-    uses: haol666/rustdesk/.github/workflows/bridge.yml@m2-h264-test
+    uses: haol666/rustdesk/.github/workflows/bridge.yml@m2-h264-test-v3
 
   build-for-macOS-arm64:
     name: rustdesk-arm64-h264
-    runs-on: macos-15
+    runs-on: macos-26
     needs: [generate-bridge]
     permissions:
       contents: write
@@ -49,12 +49,17 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Patch flutter
+      - name: Keep CocoaPods for Flutter 3.44
+        # 3.44 turns on Swift Package Manager by default, which would migrate Runner.xcodeproj
+        run: flutter config --no-enable-swift-package-manager
+
+      - name: Patch RustDesk sources for Flutter 3.44
+        # The script uses GNU `sed -i`, which macOS's BSD sed rejects.
+        shell: bash
         run: |
-          cd $(dirname $(dirname $(which flutter)))
-          if [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]]; then
-            git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff || true
-          fi
+          brew install gnu-sed
+          export PATH="$(brew --prefix gnu-sed)/libexec/gnubin:$PATH"
+          bash .github/patches/apply_flutter_3.44_source_patches.sh
 
       - name: Workaround for flutter issue
         shell: bash
@@ -84,7 +89,8 @@ jobs:
       - name: Restore bridge files
         uses: actions/download-artifact@v4
         with:
-          name: bridge-artifact
+          # arm64's *.freezed.dart must match the freezed it resolves under Flutter 3.44.
+          name: bridge-artifact-flutter-3.44
           path: ./
 
       - name: Cache vcpkg installed + binary archives
@@ -165,14 +171,16 @@ jobs:
           body: |
             Unofficial test build for Apple Silicon (M2) hosts, combining:
 
-            1. Upstream PR rustdesk/rustdesk#16499 head (ba6d3a5): bounded encoder warm-up —
-               empty output during warm-up is flow control with a 3s bounded window, restoring
-               the error-counter fallback after warm-up.
-            2. h264_videotoolbox re-enable (rustdesk-org/hwcodec#48 patch on the official
-               0.8.0 base rev febec27): macOS H.264 hardware encoder detection restored.
+            1. Upstream PR rustdesk/rustdesk#16499 head rebased on master fcb485b (f531099):
+               bounded encoder warm-up - empty output during warm-up is flow control with a 3s
+               bounded window, restoring the error-counter fallback after warm-up.
+            2. h264_videotoolbox re-enable (haol666/hwcodec rev 493e7283 on the official
+               0.8.0 base): macOS H.264 hardware encoder detection restored.
             3. macOS capture fallback fixes (CGDisplayStream probe + CGWindowList fallback).
 
-            Unsigned DMG — for testing only, not for production.
+            Base: master fcb485b (reports version 1.5.3).
+
+            Unsigned DMG - for testing only, not for production.
 
             Test notes: install on the M2 host, connect from a client, and check the host log lines
             `supported_encoding:` / `usable:` / `new encoder:`. With an H.264-only-decode client the

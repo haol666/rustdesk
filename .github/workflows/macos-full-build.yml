@@ -7,15 +7,15 @@ env:
   MAC_RUST_VERSION: "1.81" # required for macos, https://github.com/yury/cidre requires 1.81
   FLUTTER_VERSION: "3.24.5"
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
-  VERSION: "1.5.0-fallback"
+  VERSION: "1.5.3-m2h264"
 
 jobs:
   generate-bridge:
-    uses: haol666/rustdesk/.github/workflows/bridge.yml@master
+    uses: haol666/rustdesk/.github/workflows/bridge.yml@m2-h264-test-v3
 
   build-for-macOS-x86_64:
     name: rustdesk-x86_64-full
-    runs-on: macos-15-intel
+    runs-on: macos-26-intel
     needs: [generate-bridge]
     steps:
       - name: Checkout source code
