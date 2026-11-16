@@ -72,7 +72,7 @@ zbus = { version = "3.15", optional = true }
 
 [dependencies.hwcodec]
 git = "https://github.com/haol666/hwcodec"
-rev = "3642979ddf5e1daf171e6af3fd9f5cf39d6fb50b"
+rev = "a588711c65c58ecf8533398a40acf4a6b37262bf"
 optional = true
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
