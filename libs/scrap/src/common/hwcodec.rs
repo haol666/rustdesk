@@ -78,7 +78,11 @@ impl EncoderApi for HwRamEncoder {
                     width: config.width as _,
                     height: config.height as _,
                     pixfmt: DEFAULT_PIXFMT,
-                    align: HW_STRIDE_ALIGN as _,
+                    // The runtime NV12 buffer from convert_to_yuv is laid out
+                    // with STRIDE_ALIGN (64) padding, so the encoder must use
+                    // the same alignment or plane offsets mismatch and the
+                    // first real frame fails avcodec_send_frame (-1).
+                    align: crate::STRIDE_ALIGN as _,
                     kbs: bitrate as i32,
                     fps: DEFAULT_FPS,
                     gop,
