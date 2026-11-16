@@ -1362,11 +1362,15 @@ fn handle_one_frame(
             send_conn_ids = sp.send_video_frame(msg);
         }
         Err(e) => {
-            // Encoder warm-up (empty output) is flow control, not an error, but only
-            // before the encoder has produced its first frame. After warm-up a sustained
-            // empty output is a real fault and must fall through to the error counter so
-            // it is bounded and recovers, not swallowed forever.
-            if !*encoder_warmed_up && e.to_string() == "encoder warm-up pending" {
+            // Encoder warm-up (empty output) is flow control, not an error.
+            // VideoToolbox pipelines also buffer a short burst of frames right
+            // after their first output (EAGAIN on avcodec_receive_packet), so
+            // stay in the warm-up window there instead of counting strikes:
+            // the 3s no-output watchdog in the service loop bounds a truly
+            // stalled encoder, and real encode errors still hit the failure
+            // counter.
+            if e.to_string() == "encoder warm-up pending" {
+                *encoder_warmed_up = false;
                 return Ok(static_refresh::FrameEncodeResult {
                     send_conn_ids: Default::default(),
                     vpx_no_output: false,
